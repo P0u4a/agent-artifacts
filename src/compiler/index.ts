@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { compile } from "@mdx-js/mdx";
@@ -14,6 +14,11 @@ import { allowedComponentNames } from "../runtime/index.js";
 
 export type BuildArtifactOptions = {
   input: string;
+  outDir?: string;
+};
+
+export type CompileArtifactOptions = {
+  id: string;
   outDir?: string;
 };
 
@@ -93,8 +98,27 @@ const allowedProps: Record<string, string[]> = {
   MermaidDiagram: ["title", "type", "chart"],
 };
 
-export function artifactIdForMdx(mdx: string) {
-  return createHash("sha256").update(mdx).digest("hex").slice(0, 12);
+export function createArtifactId() {
+  return randomBytes(6).toString("hex");
+}
+
+async function createUnusedArtifactId(outDir: string) {
+  for (;;) {
+    const id = createArtifactId();
+    const mdxPath = path.join(outDir, `${id}.mdx`);
+    const htmlPath = path.join(outDir, `${id}.html`);
+    const exists = await Promise.all([
+      stat(mdxPath).then(() => true, () => false),
+      stat(htmlPath).then(() => true, () => false),
+    ]);
+    if (!exists.some(Boolean)) return id;
+  }
+}
+
+function validateArtifactId(id: string) {
+  if (!/^[a-f0-9]{12}$/i.test(id)) {
+    throw new Error("Artifact id must be a 12-character hex id.");
+  }
 }
 
 function escapeAnglePlaceholders(mdx: string) {
@@ -354,14 +378,33 @@ export async function createArtifact(
       `Invalid artifact MDX:\n${validation.errors.map((e) => `- ${e}`).join("\n")}`,
     );
 
-  const id = artifactIdForMdx(mdx);
   await mkdir(outDir, { recursive: true });
+  const id = await createUnusedArtifactId(outDir);
   const mdxPath = path.join(outDir, `${id}.mdx`);
   const htmlPath = path.join(outDir, `${id}.html`);
   const html = await renderArtifactHtml(mdx);
   await writeFile(mdxPath, mdx);
   await writeFile(htmlPath, html);
   return { id, mdxPath, htmlPath, warnings: validation.warnings };
+}
+
+export async function compileArtifact(
+  options: CompileArtifactOptions,
+): Promise<BuildArtifactResult> {
+  validateArtifactId(options.id);
+  const outDir = path.resolve(options.outDir ?? ".agents/artifacts");
+  const mdxPath = path.join(outDir, `${options.id}.mdx`);
+  const htmlPath = path.join(outDir, `${options.id}.html`);
+  const mdx = await readFile(mdxPath, "utf8");
+  const validation = validateMdx(mdx);
+  if (!validation.ok)
+    throw new Error(
+      `Invalid artifact MDX:\n${validation.errors.map((e) => `- ${e}`).join("\n")}`,
+    );
+
+  const html = await renderArtifactHtml(mdx);
+  await writeFile(htmlPath, html);
+  return { id: options.id, mdxPath, htmlPath, warnings: validation.warnings };
 }
 
 export async function buildArtifact(

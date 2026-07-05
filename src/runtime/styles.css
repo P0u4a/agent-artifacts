@@ -462,6 +462,21 @@
   .aa-chart svg text {
     fill: var(--muted-foreground);
   }
+  .aa-chart-fill-1 {
+    fill: var(--aa-chart-1);
+  }
+  .aa-chart-fill-2 {
+    fill: var(--aa-chart-2);
+  }
+  .aa-chart-fill-3 {
+    fill: var(--aa-chart-3);
+  }
+  .aa-chart-fill-4 {
+    fill: var(--aa-chart-4);
+  }
+  .aa-chart-fill-5 {
+    fill: var(--aa-chart-5);
+  }
   .aa-section [data-slot="card"] {
     margin-block: 1rem;
   }

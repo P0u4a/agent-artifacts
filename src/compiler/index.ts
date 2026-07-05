@@ -35,6 +35,12 @@ export type ValidationResult = {
   warnings: string[];
 };
 
+export type ArtifactTocItem = {
+  id: string;
+  text: string;
+  level: 2 | 3;
+};
+
 const rawHtmlTags = new Set([
   "a",
   "article",
@@ -85,7 +91,6 @@ const allowedProps: Record<string, string[]> = {
   Slider: ["label", "value", "min", "max", "description"],
   Chart: ["title", "type", "data", "xKey", "yKey"],
   MermaidDiagram: ["title", "type", "chart"],
-  ReactFlowDiagram: ["title", "direction", "groups", "nodes", "edges"],
 };
 
 export function artifactIdForMdx(mdx: string) {
@@ -96,6 +101,69 @@ function escapeAnglePlaceholders(mdx: string) {
   // Let agents write placeholders like http://<hub-ip> without MDX treating them as JSX.
   // Real artifact components are PascalCase, so lowercase hyphenated placeholders are safe to escape.
   return mdx.replace(/<([a-z][a-z0-9]*-[a-z0-9-]*)>/g, "&lt;$1&gt;");
+}
+
+function slugForHeading(text: string) {
+  return (
+    text
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || "section"
+  );
+}
+
+function textFromMarkdownNode(node: any): string {
+  if (!node) return "";
+  if (typeof node.value === "string") return node.value;
+  if (Array.isArray(node.children))
+    return node.children.map(textFromMarkdownNode).join("");
+  return "";
+}
+
+function stringAttribute(node: any, name: string) {
+  const attr = node.attributes?.find(
+    (item: any) => item?.type === "mdxJsxAttribute" && item.name === name,
+  );
+  return typeof attr?.value === "string" ? attr.value : undefined;
+}
+
+export function extractArtifactToc(mdx: string): ArtifactTocItem[] {
+  const tree = unified()
+    .use(remarkParse)
+    .use(remarkMdx)
+    .parse(escapeAnglePlaceholders(mdx));
+  const seen = new Map<string, number>();
+  const toc: ArtifactTocItem[] = [];
+
+  const addItem = (text: string, level: 2 | 3) => {
+    const base = slugForHeading(text);
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    toc.push({
+      id: count === 0 ? base : `${base}-${count + 1}`,
+      text: text.trim() || base,
+      level,
+    });
+  };
+
+  visit(tree, (node: any) => {
+    if (node.type === "heading" && (node.depth === 2 || node.depth === 3)) {
+      addItem(textFromMarkdownNode(node), node.depth);
+      return;
+    }
+
+    if (node.type !== "mdxJsxFlowElement") return;
+    if (node.name === "Section") {
+      const title = stringAttribute(node, "title");
+      if (title) addItem(title, 2);
+    } else if (node.name === "DataTable") {
+      const title = stringAttribute(node, "title");
+      if (title) addItem(title, 3);
+    }
+  });
+
+  return toc;
 }
 
 export function validateMdx(mdx: string): ValidationResult {
@@ -198,6 +266,7 @@ async function bundleArtifactClient(mdx: string) {
     new URL("../runtime/index.js", import.meta.url),
   );
   const runtimeDir = path.dirname(runtimePath);
+  const artifactToc = extractArtifactToc(mdx);
   const compiledMdx = String(
     await compile(escapeAnglePlaceholders(mdx), {
       outputFormat: "program",
@@ -215,8 +284,9 @@ async function bundleArtifactClient(mdx: string) {
         import { createRoot } from "react-dom/client";
         import { ArtifactShell, artifactComponents } from ${JSON.stringify(runtimePath)};
         import Content from "artifact:mdx";
+        const artifactToc = ${JSON.stringify(artifactToc)};
         createRoot(document.getElementById("root")).render(
-          React.createElement(ArtifactShell, null, React.createElement(Content, { components: artifactComponents }))
+          React.createElement(ArtifactShell, { toc: artifactToc }, React.createElement(Content, { components: artifactComponents }))
         );
       `,
       resolveDir: runtimeDir,

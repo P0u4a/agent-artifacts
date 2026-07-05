@@ -18,3 +18,11 @@ npx agent-artifacts init
 ```
 
 Ask your agent to create an artifact, your agent handles the rest.
+
+## CLI
+
+```bash
+agent-artifacts create < artifact.mdx
+agent-artifacts compile <id>
+agent-artifacts view <id>
+```

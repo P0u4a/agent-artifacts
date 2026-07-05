@@ -4,7 +4,7 @@ import { existsSync, lstatSync } from "node:fs";
 import { cp, mkdir, rm, stat, symlink } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createArtifact } from "../compiler/index.js";
+import { compileArtifact, createArtifact } from "../compiler/index.js";
 
 async function init() {
   const cwd = process.cwd();
@@ -61,6 +61,20 @@ async function create(args: string[]) {
   for (const warning of result.warnings) console.warn(`Warning: ${warning}`);
 }
 
+async function compile(args: string[]) {
+  const id = args[0]?.replace(/\.mdx$/, "").replace(/\.html$/, "");
+  if (!id) throw new Error("Usage: agent-artifacts compile <artifact-id>");
+  if (!/^[a-f0-9]{12}$/i.test(id))
+    throw new Error("Artifact id must be the 12-character id printed by agent-artifacts create");
+
+  const result = await compileArtifact({ id, outDir: ".agents/artifacts" });
+  console.log(`Artifact compiled: ${result.id}`);
+  console.log(`MDX: ${result.mdxPath}`);
+  console.log(`HTML: ${result.htmlPath}`);
+  console.log(`View: agent-artifacts view ${result.id}`);
+  for (const warning of result.warnings) console.warn(`Warning: ${warning}`);
+}
+
 async function view(args: string[]) {
   const id = args[0]?.replace(/\.html$/, "");
   if (!id) throw new Error("Usage: agent-artifacts view <artifact-id>");
@@ -98,6 +112,7 @@ function usage() {
   agent-artifacts init
   agent-artifacts create "<MDX-code>"
   agent-artifacts create < artifact.mdx
+  agent-artifacts compile <artifact-id>
   agent-artifacts view <artifact-id>`);
 }
 
@@ -107,6 +122,7 @@ const args = process.argv.slice(3);
 const commands: Record<string, () => Promise<void>> = {
   init,
   create: () => create(args),
+  compile: () => compile(args),
   view: () => view(args),
 };
 

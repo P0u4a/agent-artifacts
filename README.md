@@ -1,4 +1,4 @@
-# @p0u4a/agent-artifacts
+# agent-artifacts
 
 Agent-authored MDX artifacts compiled to standalone HTML.
 
